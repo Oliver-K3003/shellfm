@@ -2,17 +2,21 @@ use ratatui::{
     DefaultTerminal,
     buffer::Buffer,
     crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind},
-    layout::{Constraint, Layout, Rect},
-    style::{Color, Style, Stylize, palette::tailwind},
+    layout::{Constraint, Layout, Position, Rect},
+    style::{Color, Style, Styled, Stylize, palette::tailwind},
     symbols,
     text::Line,
     widgets::{
         Block, Borders, HighlightSpacing, List, ListItem, Paragraph, StatefulWidget, Widget,
     },
 };
-use std::{env, error, path::Path, fmt::{self, Display}};
+use std::{
+    env, error, fmt::{self, Display}, fs, path::Path
+};
 
+pub mod console;
 pub mod display;
+use console::{Console, Show};
 use display::{Dir, DirList};
 
 // set global styles
@@ -24,6 +28,7 @@ const ALT_ROW_BG: Color = tailwind::SLATE.c900;
 const SELECTED_STYLE: Style = Style::new().bg(tailwind::SLATE.c600);
 const TEXT_COLOR: Color = tailwind::ZINC.c300;
 
+// ----- MODE ----- //
 pub enum Mode {
     Normal,
     Visual,
@@ -31,28 +36,32 @@ pub enum Mode {
     Command,
 }
 
-impl Display for Mode{
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result{
-        let val: &str = match self{
+impl Display for Mode {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let val: &str = match self {
             Mode::Normal => "Normal",
             Mode::Insert => "Insert",
             Mode::Visual => "Visual",
-            _ => ""
+            _ => "",
         };
         write!(f, "{}", val)
     }
 }
 
+// ----- STATE ----- //
 pub enum State {
     Editing,
 }
 
+// ----- APP ----- //
 pub struct App {
     pub mode: Mode,
-    pub state: Option<State>,
+    state: Option<State>,
     pub dir_list: DirList,
     pub should_exit: bool,
     pub curr_dir: String,
+    pub console: Console,
+    pub shellpos: Option<Rect>,
 }
 
 impl App {
@@ -64,13 +73,28 @@ impl App {
             state: None,
             dir_list: DirList::new(&path),
             curr_dir: path.display().to_string(),
+            console: Console::new(),
+            shellpos: None,
         }
     }
 
     pub fn run(mut self, mut terminal: DefaultTerminal) -> Result<(), Box<dyn error::Error>> {
         self.dir_list.state.select_first();
         while !self.should_exit {
-            terminal.draw(|frame| frame.render_widget(&mut self, frame.area()))?;
+            terminal.draw(|frame| {
+                frame.render_widget(&mut self, frame.area());
+                match self.console.display {
+                    Show::Visible => {
+                        if let Some(rect) = self.shellpos {
+                            frame.set_cursor_position(Position::new(
+                                rect.x + self.console.character_index as u16,
+                                rect.y + 1,
+                            ));
+                        }
+                    }
+                    Show::Hidden => {}
+                }
+            })?;
             if let Event::Key(key) = event::read()? {
                 self.handle_key(key);
             };
@@ -89,18 +113,65 @@ impl App {
                     KeyCode::Char('k') | KeyCode::Up => self.select_prev(),
                     KeyCode::Char('h') | KeyCode::Left => self.move_up_dir(),
                     KeyCode::Char('l') | KeyCode::Right | KeyCode::Enter => self.move_down_dir(),
-                    KeyCode::Char('q') => self.should_exit = true,
-                    KeyCode::Char('g') | KeyCode::Home => self.select_first(),
+                    KeyCode::Char('g') => {
+                        if let Event::Key(key) = event::read().unwrap() {
+                            match key.code {
+                                KeyCode::Char('g') => self.select_first(),
+                                _ => self.handle_key(key),
+                            }
+                        }
+                    }
+                    KeyCode::Home => self.select_first(),
+                    KeyCode::Char('d') => {
+                        if let Event::Key(key) = event::read().unwrap() {
+                            match key.code {
+                                KeyCode::Char('d') => self.delete_selected(),
+                                _ => self.handle_key(key),
+                            }
+                        }
+                    },
                     KeyCode::Char('G') | KeyCode::End => self.select_last(),
                     KeyCode::Char('i') => self.enter_insert('i'),
                     KeyCode::Char('a') => self.enter_insert('a'),
+                    KeyCode::Char(':') => {
+                        self.console.show_console();
+                        self.mode = Mode::Command;
+                    }
                     _ => {}
                 };
             }
+
             Mode::Insert => {
                 match key.code {
-                    KeyCode::Char('o') => {},
+                    // make file
+                    KeyCode::Char('f') => {
+                        self.console.set_prefix("Enter File Name:");
+                        self.mode = Mode::Command;
+                    }
+                    // make directory
+                    KeyCode::Char('d') => {
+                        self.console.set_prefix("Enter Directory Name:");
+                        self.mode = Mode::Command;
+                    }
                     KeyCode::Esc => self.mode = Mode::Normal,
+                    _ => {}
+                }
+            }
+
+            Mode::Command => {
+                match key.code {
+                    KeyCode::Esc => {
+                        self.console.hide_console();
+                        self.mode = Mode::Normal;
+                    }
+                    KeyCode::Enter => {
+                        let val = &self.console.submit_command()[..];
+                        self.mode = Mode::Normal;
+                        // match val to various commands
+                        self.handle_command(val);
+                    }
+                    KeyCode::Backspace => self.console.delete_char(),
+                    KeyCode::Char(x) => self.console.enter_char(x),
                     _ => {}
                 }
             }
@@ -108,11 +179,11 @@ impl App {
         }
     }
 
-    fn enter_insert(&mut self, inp: char){
+    fn enter_insert(&mut self, inp: char) {
         self.mode = Mode::Insert;
-        if inp == 'i'{
+        if inp == 'i' {
             self.dir_list.state.select_first();
-        } else{
+        } else {
             self.dir_list.state.select_last();
         }
     }
@@ -143,13 +214,69 @@ impl App {
     fn move_down_dir(&mut self) {
         if let Some(i) = self.dir_list.state.selected() {
             let new_path = self.dir_list.items[i].path.clone();
-            let path_type = Path::new(&new_path);
-            if path_type.is_dir() {
-                self.dir_list = DirList::new(path_type);
-                self.curr_dir = new_path;
-                self.dir_list.state.select_first();
+            if new_path == "../" {
+                self.move_up_dir();
+            } else {
+                let path_type = Path::new(&new_path);
+                if path_type.is_dir() {
+                    self.dir_list = DirList::new(path_type);
+                    self.curr_dir = new_path;
+                    self.dir_list.state.select_first();
+                }
             }
         }
+    }
+
+    fn delete_selected(&mut self){
+        if let Some(i) = self.dir_list.state.selected() {
+            let remove_path = self.dir_list.items[i].path.clone();
+            if remove_path != "../" {
+                let remove_path = Path::new(&remove_path);
+                if remove_path.is_file(){
+                    match fs::remove_file(remove_path){
+                        Ok(_) => {},
+                        Err(e) => println!("Error deleting file {}", e),
+                    }
+                } else if remove_path.is_dir(){
+                    // create warning screen
+                }
+                self.dir_list = DirList::new(Path::new(&self.curr_dir));
+            }
+        }
+    }
+
+    fn handle_command(&mut self, cmd: &str) {
+        let string_cmd = String::from(cmd);
+        if string_cmd.starts_with("Enter File Name:") {
+            let file_name : Vec<&str>= string_cmd.split(":").collect();
+            let curr_path = Path::new(&self.curr_dir).join(file_name.get(1).unwrap());
+            self.create_file(&curr_path);
+        } else if string_cmd.starts_with("Enter File Name:") {
+            let dir_name : Vec<&str>= string_cmd.split(":").collect();
+            let curr_path = Path::new(&self.curr_dir).join(dir_name.get(1).unwrap());
+            self.create_dir(&curr_path);
+        } else {
+            match cmd {
+                ":q" => self.should_exit = true,
+                _ => {}
+            }
+        }
+    }
+
+    fn create_file(&mut self, file_path: &Path){
+        match fs::File::create(file_path){
+            Ok(_) => {},
+            Err(e) => println!("Failed to create file {}", e),
+        }
+        self.dir_list = DirList::new(Path::new(&self.curr_dir));
+    }
+
+    fn create_dir(&mut self, dir_path : &Path){
+        match fs::create_dir(dir_path){
+            Ok(_) => {},
+            Err(e) => println!("Failed to create directory {}", e),
+        }
+        self.dir_list = DirList::new(Path::new(&self.curr_dir));
     }
 
     pub fn commit(&mut self) {
@@ -186,10 +313,15 @@ impl App {
             .render(area, buf);
     }
 
-    fn render_footer(&mut self, area: Rect, buf: &mut Buffer){
+    fn render_footer(&mut self, area: Rect, buf: &mut Buffer) {
+        let [left, _right] =
+            Layout::horizontal([Constraint::Fill(1), Constraint::Fill(2)]).areas(area);
+        self.shellpos = Some(area);
         Paragraph::new(format!("{}", self.mode))
-            .centered()
-            .render(area, buf);
+            .set_style(Style::new().fg(TEXT_COLOR))
+            .left_aligned()
+            .render(left, buf);
+        self.console.render(area, buf);
     }
 
     fn render_list(&mut self, area: Rect, buf: &mut Buffer) {
@@ -225,6 +357,7 @@ const fn alt_row_color(i: usize) -> Color {
     if i % 2 == 0 { ROW_BG } else { ALT_ROW_BG }
 }
 
+// dir to list item
 impl From<&Dir> for ListItem<'_> {
     fn from(value: &Dir) -> Self {
         let line = Line::styled(format!("{}", value.display), TEXT_COLOR);

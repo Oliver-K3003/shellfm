@@ -8,7 +8,6 @@ pub struct Dir{
     pub display: String,
 }
 
-
 impl Dir {
     pub fn new(path: String, display: String) -> Self{
         Self {
@@ -41,6 +40,9 @@ impl DirList {
 
     fn get_dir(path: &Path) -> Vec<(String, String)> {
         let mut paths : Vec<(String, String)> = Vec::new();
+        if let Some(_) = path.parent() {
+            paths.push((String::from("../"), String::from("../")));
+        }
         match fs::read_dir(path) {
             Ok(iter) => {
                 for path in iter {
