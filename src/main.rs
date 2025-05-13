@@ -1,33 +1,25 @@
-pub mod app;
+use clap::Parser;
+use cli::Cli;
+use color_eyre::Result;
 
-use std::error;
+use crate::app::App;
 
-use app::App;
+mod action;
+mod app;
+mod cli;
+mod components;
+mod config;
+mod errors;
+mod logging;
+mod tui;
 
-/*
-TODO
-    [x] - Make list state dependent
-    [x] - Get current dir (when opening)
-    [x] - j/k or up/down for nav between files
-    [ ] - h/l or right/left for nav up/down directories
-    [ ] - preview window
-    [ ] - default programs for opening
-    [ ] - search bar (different functions)
-        [ ] - entire file system
-        [ ] - current dir (w or w/o subdirs)
-        [ ] - grep within file
-        [ ] - within upper dir/specified dir
-    [ ] - add files, dirs
-        [ ] - make file & open default editor
-    [ ] - remove files, dirs
-    [ ] - rename files, dirs
-    [ ] - move files, dirs
-    [ ] - copy files, dirs
- */
+#[tokio::main]
+async fn main() -> Result<()> {
+    crate::errors::init()?;
+    crate::logging::init()?;
 
-fn main() -> Result<(), Box<dyn error::Error>> {
-    let terminal = ratatui::init();
-    let app_result = App::new().run(terminal);
-    ratatui::restore();
-    app_result
+    let args = Cli::parse();
+    let mut app = App::new(args.tick_rate, args.frame_rate)?;
+    app.run().await?;
+    Ok(())
 }
