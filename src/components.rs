@@ -10,6 +10,7 @@ use crate::{action::Action, config::Config, tui::Event};
 
 pub mod fps;
 pub mod home;
+pub mod dirlist;
 
 /// `Component` is a trait that represents a visual and interactive element of the user interface.
 ///
@@ -121,5 +122,4 @@ pub trait Component {
     /// # Returns
     ///
     /// * `Result<()>` - An Ok result or an error.
-    fn draw(&mut self, frame: &mut Frame, area: Rect) -> Result<()>;
-}
+    fn draw(&mut self, frame: &mut Frame, area: Rect) -> Result<()>; }

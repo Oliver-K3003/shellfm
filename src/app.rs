@@ -1,3 +1,5 @@
+use std::env;
+
 use color_eyre::Result;
 use crossterm::event::KeyEvent;
 use ratatui::prelude::Rect;
@@ -7,7 +9,7 @@ use tracing::{debug, info};
 
 use crate::{
     action::Action,
-    components::{Component, fps::FpsCounter, home::Home},
+    components::{Component, fps::FpsCounter, dirlist::DirList},
     config::Config,
     tui::{Event, Tui},
 };
@@ -28,20 +30,25 @@ pub struct App {
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Mode {
     #[default]
-    Home,
+    DirList,
+    Normal,
+    Insert,
+    Visual,
+    Command,
 }
 
 impl App {
     pub fn new(tick_rate: f64, frame_rate: f64) -> Result<Self> {
         let (action_tx, action_rx) = mpsc::unbounded_channel();
+        let path = env::current_dir().unwrap();
         Ok(Self {
             tick_rate,
             frame_rate,
-            components: vec![Box::new(Home::new()), Box::new(FpsCounter::default())],
+            components: vec![Box::new(DirList::new(&path)), Box::new(FpsCounter::default())],
             should_quit: false,
             should_suspend: false,
             config: Config::new()?,
-            mode: Mode::Home,
+            mode: Mode::DirList,
             last_tick_key_events: Vec::new(),
             action_tx,
             action_rx,

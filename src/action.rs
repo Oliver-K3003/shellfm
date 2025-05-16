@@ -3,6 +3,12 @@ use strum::Display;
 
 #[derive(Debug, Clone, PartialEq, Eq, Display, Serialize, Deserialize)]
 pub enum Action {
+    SelectNext,
+    SelectPrev,
+    SelectFirst,
+    SelectLast,
+    MoveUpDir,
+    MoveDownDir,
     Tick,
     Render,
     Resize(u16, u16),
