@@ -9,7 +9,7 @@ use tracing::{debug, info};
 
 use crate::{
     action::Action,
-    components::{Component, fps::FpsCounter, dirlist::DirList},
+    components::{Component, console::Console, dirlist::DirList, fps::FpsCounter},
     config::Config,
     tui::{Event, Tui},
 };
@@ -44,7 +44,11 @@ impl App {
         Ok(Self {
             tick_rate,
             frame_rate,
-            components: vec![Box::new(DirList::new(&path)), Box::new(FpsCounter::default())],
+            components: vec![
+                Box::new(DirList::new(&path)),
+                Box::new(FpsCounter::default()),
+                Box::new(Console::new()),
+            ],
             should_quit: false,
             should_suspend: false,
             config: Config::new()?,
@@ -152,6 +156,8 @@ impl App {
                 Action::ClearScreen => tui.terminal.clear()?,
                 Action::Resize(w, h) => self.handle_resize(tui, w, h)?,
                 Action::Render => self.render(tui)?,
+                Action::DirMode => self.mode = Mode::DirList,
+                Action::CmdMode => self.mode = Mode::Command,
                 _ => {}
             }
             for component in self.components.iter_mut() {

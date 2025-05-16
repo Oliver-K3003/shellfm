@@ -10,6 +10,7 @@ use ratatui::{
     symbols,
     text::Line,
     widgets::{Block, Borders, HighlightSpacing, List, ListItem, ListState},
+    crossterm::event::{KeyCode, KeyEventKind},
 };
 
 use super::Component;
@@ -145,6 +146,21 @@ impl Component for DirList {
     fn register_action_handler(&mut self, tx: UnboundedSender<Action>) -> Result<()> {
         self.command_tx = Some(tx);
         Ok(())
+    }
+
+    fn register_config_handler(&mut self, config: Config) -> Result<()> {
+        self.config = config;
+        Ok(())
+    }
+
+    fn handle_key_event(&mut self, key: crossterm::event::KeyEvent) -> Result<Option<Action>> {
+        if key.kind != KeyEventKind::Press {
+            return Ok(None);
+        }
+        match key.code{
+            KeyCode::Char(':') => Ok(Some(Action::ShowConsole)),
+            _ => Ok(None), 
+        }
     }
 
     fn update(&mut self, action: Action) -> Result<Option<Action>> {

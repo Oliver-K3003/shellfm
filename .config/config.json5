@@ -1,7 +1,7 @@
 {
   "keybindings": {
     "DirList": {
-      "<q>": "Quit", // Quit the application
+      //"<q>": "Quit", // Quit the application
       "<Ctrl-z>": "Suspend", // Suspend the application
       "<j>": "SelectNext",
       "<k>": "SelectPrev",
