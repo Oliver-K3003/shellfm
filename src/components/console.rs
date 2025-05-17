@@ -31,6 +31,8 @@ impl Console{
     }
 
     fn show_console(&mut self){
+        self.input = String::from(":");
+        self.character_index = 1;
         self.display = Show::Visible;
     }
 
